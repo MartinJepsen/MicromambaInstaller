@@ -1,8 +1,9 @@
 use std::env::consts::{ARCH, OS};
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use home::home_dir;
 
 use curl::easy::{Easy2, Handler, WriteError};
 
@@ -34,12 +35,11 @@ impl FileHandler {
     ///
     /// # Arguments
     ///
-    /// * `path` - A string slice representing the file path
+    /// * `path` - A PathBuf representing the file path
     ///
-    pub fn new(path: &String) -> FileHandler {
-        let as_path: &Path = Path::new(path);
+    pub fn new(path: &PathBuf) -> FileHandler {
         // Create parent directories if they do not exist yet
-        let parent: &Path = as_path.parent().unwrap();
+        let parent: &Path = path.parent().unwrap();
         if !parent.is_dir() {
             std::fs::create_dir_all(parent).unwrap();
         };
@@ -64,7 +64,7 @@ impl Handler for FileHandler {
 }
 
 struct MicromambaConfig {
-    exe_path: String,
+    exe_path: PathBuf,
     init_shell: bool,
     root_prefix: String,
     shell: Option<String>,
@@ -72,15 +72,19 @@ struct MicromambaConfig {
 
 impl MicromambaConfig {
     fn get_root_prefix() -> String {
-        let mut path: String = String::from("~/micromamba/");
-        println!("Micromamba root prefix? [{}]", path);
+        let mut path: PathBuf = home_dir().unwrap();
+        path.push("micromamba");
+        println!("Micromamba root prefix? [{}]", path.display());
         let mut user_input: String = String::new();
         std::io::stdin().read_line(&mut user_input).unwrap();
         user_input = String::from(user_input.trim());
         if !(user_input.is_empty()) {
-            path = user_input;
+            path = PathBuf::from(user_input);
         };
-        path
+        match std::fs::canonicalize(&path).unwrap().to_str() {
+            Some(i) => i.to_string(),
+            None => panic!("Could not parse path: {}", path.display())
+        }
     }
 
     fn init_shell() -> bool {
@@ -104,17 +108,18 @@ impl MicromambaConfig {
         String::from(user_input.trim())
     }
 
-    fn get_bin_path(os: &OperatingSystem) -> String {
-        let mut path = match os {
-            OperatingSystem::Windows => String::from("~/micromamba/micromamba.exe"),
-            OperatingSystem::Macos | OperatingSystem::Linux => String::from("~/.local/bin/micromamba"),
+    fn get_bin_path(os: &OperatingSystem) -> PathBuf {
+        let mut path = PathBuf::from(home::home_dir().unwrap());
+        match os {
+            OperatingSystem::Windows => path.push("micromamba\\micromamba.exe"),
+            OperatingSystem::Macos | OperatingSystem::Linux => path.push("~/.local/bin/micromamba"),
         };
-        println!("Micromamba binary path? [{}]", path);
+        println!("Micromamba binary path? [{}]", path.display());
         let mut user_input: String = String::new();
         std::io::stdin().read_line(&mut user_input).unwrap();
         user_input = String::from(user_input.trim());
         if !(user_input.is_empty()) {
-            path = user_input;
+            path = PathBuf::from(user_input);
         };
         path
     }
@@ -126,10 +131,10 @@ impl MicromambaConfig {
         } else {
             None
         };
-        let exe_path: String = MicromambaConfig::get_bin_path(&os);
+        let bin_path: PathBuf = MicromambaConfig::get_bin_path(&os);
         
         MicromambaConfig {
-            exe_path,
+            exe_path: bin_path,
             init_shell,
             root_prefix,
             shell,
@@ -153,7 +158,7 @@ fn main() -> () {
     }
 }
 
-fn download_micromamba_exe(os: OperatingSystem, exe_path: &String) -> Result<(), String> {
+fn download_micromamba_exe(os: OperatingSystem, exe_path: &PathBuf) -> Result<(), String> {
     // Determine what download URL we should query, based on OS and architecture
     let os_arch: String = determine_os_arch(&os);
     let url: String = format!(
@@ -192,7 +197,7 @@ fn determine_os_arch(os: &OperatingSystem) -> String {
 
 fn init_micromamba(config: &MicromambaConfig) {
     println!("Initializing micromamba for current shell with");
-    println!("{}", &config.exe_path);
+    println!("{}", &config.exe_path.display());
     let shell: &String = match &config.shell {
         Some(i) => i,
         None => panic!("Tried shell initialization without a shell.")
